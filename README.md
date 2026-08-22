@@ -7,7 +7,7 @@
 ## 功能
 
 - **TTS 语音合成**：自实现 edge-tts 协议（WebSocket，含 Sec-MS-GEC 令牌 / 时钟偏移自校正），多种中文音色、语速可调，mp3 自动磁盘缓存（sha1 命名，跨进程稳定）
-- **本机播放**：Windows 用常驻 PowerShell + WMPlayer.OCX 守护进程播放（支持暂停、实时音量，零外部依赖）；其他平台自动回退 mpv / ffplay / afplay / mpg123
+- **本机播放**：Windows 用常驻 PowerShell + WMPlayer.OCX 守护进程；Linux/macOS 用 miniaudio_node（Rust 原生模块，mp3 直读，免装播放器免编译），均支持暂停与实时音量；异常时回退 mpv / ffplay / mpg123 等外部播放器
 - **多播放列表**：创建 / 重命名 / 删除列表，条目拖拽排序（手机端 ↑↓ 按钮）、启用停用、试听
 - **播放控制**：播放 / 暂停 / 停止 / 上一条 / 下一条，列表循环、单曲循环、播放一遍，音量调节
 - **紧急插播**：随时打断当前播放插播一段文字，播完自动恢复原列表
@@ -44,30 +44,31 @@ pm2 start ecosystem.config.js
 pm2 logs ai-radio-node
 ```
 
-## Linux 部署
+## Linux / macOS 播放
 
-Linux 下本机播放依赖一个命令行播放器（Windows 用 WMPlayer 无需安装，macOS 用自带 afplay）：
+非 Windows 平台使用 **miniaudio_node**（Rust + rodio 原生模块）直接播放 mp3：
+npm 安装时自动下载对应平台的预编译二进制，**无需安装任何系统播放器、无需编译**，
+且支持实时音量与暂停恢复。
 
 ```bash
-sudo apt install mpg123        # 最小方案；或 ffmpeg(含 ffplay) / mpv / sox
+git pull && npm install && pm2 restart ai-radio-node   # 已有部署的升级三步
 ```
 
-自动探测顺序：`mpv → ffplay → cvlc → mpg123 → play(sox)`。也可以用环境变量指定任意命令
-（播放时在命令末尾追加音频文件路径）：
+模块不可用（如极少数无预编译的平台）时自动回退外部播放器，探测顺序：
+`mpv → ffplay → cvlc → mpg123 → play(sox) → afplay(macOS)`；也可用环境变量
+PLAYER_CMD 指定任意命令（播放时在命令末尾追加音频文件路径）：
 
 ```bash
 PLAYER_CMD="mpg123 -o pulse -q" npm start
 ```
 
-pm2 场景把变量写进 `ecosystem.config.js` 的 `env` 后 `pm2 restart ai-radio-node --update-env`。
+### 无声音排查
 
-### Linux 无声音排查
-
-- 播放器装了仍报「未找到」：确认其在 PATH 里（`which mpg123`）
-- 播放器能启动但没声音：
-  - 桌面会话下先手动验证 `mpg123 xxx.mp3` 有声，再查 pm2 进程能否访问音频服务
-  - 通过 SSH 启动 pm2 时可能缺少用户会话环境，试 `PLAYER_CMD="mpg123 -o alsa -q"` 或 `-o pulse`
-  - `pactl info` 确认 PulseAudio/PipeWire 在运行；服务器无桌面环境时 ALSA 直通最稳
+- 日志出现「miniaudio_node 不可用」→ 运行 `npm install` 确认 `node_modules/miniaudio_node` 存在
+- 模块正常但无声（常见于 SSH 启动 pm2 的无会话环境）：
+  - 桌面终端先验证 `pactl info` 显示 PulseAudio/PipeWire 在运行
+  - ALSA 直通兜底：`PLAYER_CMD="mpg123 -o alsa -q"` 写入 ecosystem.config.js 的 env 后
+    `pm2 restart ai-radio-node --update-env`
 
 ## 结构
 

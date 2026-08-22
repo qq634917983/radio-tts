@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@tailwindcss/browser": "^4.3.3",
+    "miniaudio_node": "^1.6.0",
     "ws": "^8.18.0"
   }
 }

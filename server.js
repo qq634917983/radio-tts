@@ -17,6 +17,10 @@ const DEFAULT_VOICE = 'zh-CN-XiaoxiaoNeural';
 
 const player = new Speaker();
 
+/** 统一合成入口（磁盘缓存）。 */
+const synthAudio = (text, voice, rate = 0, volume = 0) =>
+  tts.synth(CACHE, text, voice, rate, volume);
+
 const rid = () => crypto.randomBytes(4).toString('hex');
 const newPlaylist = (name = '默认列表') => ({ id: rid(), name, items: [] });
 
@@ -61,7 +65,7 @@ async function playLoop(pl, mode, gen) {
                    id: it.id, text: it.text };
     let file;
     try {
-      file = await tts.synth(CACHE, it.text, it.voice, it.rate || 0, it.volume || 0);
+      file = await synthAudio(it.text, it.voice, it.rate || 0, it.volume || 0);
     } catch (e) {
       console.error('合成失败:', e.message);
       await sleep(1000);
@@ -143,7 +147,7 @@ async function runScheduleOnce(s) {
     case 'play_item': {
       const it = findItem(s.target);
       if (it) {
-        tts.synth(CACHE, it.text, it.voice, it.rate || 0, it.volume || 0)
+        synthAudio(it.text, it.voice, it.rate || 0, it.volume || 0)
           .then((file) => player.playFile(file, { id: it.id, text: it.text }))
           .catch((e) => console.error('定时播放条目失败:', e.message));
       }
@@ -151,7 +155,7 @@ async function runScheduleOnce(s) {
     }
     case 'announce':
       if (s.text) {
-        tts.synth(CACHE, s.text, s.voice || DEFAULT_VOICE, 0, 0)
+        synthAudio(s.text, s.voice || DEFAULT_VOICE, 0, 0)
           .then((file) => player.playFile(file, { text: s.text }))
           .catch((e) => console.error('定时播报失败:', e.message));
       }
@@ -377,7 +381,7 @@ async function route(req, res) {
     if (wasPlaying) { playing = false; player.stop(); await sleep(200); }
     (async () => {                                          // 异步执行插播，播完恢复
       try {
-        const file = await tts.synth(CACHE, text, u.voice || DEFAULT_VOICE, 0, 0);
+        const file = await synthAudio(text, u.voice || DEFAULT_VOICE, 0, 0);
         await player.playFile(file, { text, urgent: true });
       } catch (err) { console.error('插播失败:', err.message); }
       if (u.resume !== false && wasPlaying) {
@@ -403,7 +407,7 @@ async function route(req, res) {
   if (method === 'POST' && b === 'preview' && !c) {
     const item = cleanItem(await readJson(req));
     if (!item.text) return send(res, 400, { ok: false, msg: '文字不能为空' });
-    tts.synth(CACHE, item.text, item.voice, item.rate, item.volume)
+    synthAudio(item.text, item.voice, item.rate, item.volume)
       .then((file) => player.playFile(file, { text: item.text }))
       .catch((err) => console.error('试听失败:', err.message));
     return send(res, 200, { ok: true });
