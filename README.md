@@ -7,7 +7,7 @@
 ## 功能
 
 - **TTS 语音合成**：自实现 edge-tts 协议（WebSocket，含 Sec-MS-GEC 令牌 / 时钟偏移自校正），多种中文音色、语速可调，mp3 自动磁盘缓存（sha1 命名，跨进程稳定）
-- **本机播放**：Windows 用系统自带 WMPlayer 组件（暂停 + 实时音量）；Linux/macOS 用 ffmpeg-static（npm 自动下载二进制，**无需 apt 安装任何播放器**，pulse → alsa 自动回退）
+- **本机播放**：Windows 用系统自带 WMPlayer 组件（暂停 + 实时音量）；Linux/macOS 直接调用**系统自带播放器**（pw-play/paplay/afplay），无则 mpv，最后 ffmpeg-static 解码兜底
 - **多播放列表**：**每个列表就是 `playlists/` 下的一个真实文件夹**（内含自己的 mp3 与 `meta.json` 条目/定时规则），创建 / 重命名 / 删除列表即文件夹操作，条目拖拽排序（手机端 ↑↓ 按钮）、启用停用、试听
 - **播放控制**：播放 / 暂停 / 停止 / 上一条 / 下一条，列表循环、单曲循环、播放一遍，音量调节
 - **紧急插播**：随时打断当前播放插播一段文字，播完自动恢复原列表
@@ -58,28 +58,29 @@ pm2 logs radio-tts
 | 平台 | 引擎 | 说明 |
 | --- | --- | --- |
 | Windows | WMPlayer.OCX 守护进程 | 系统自带；暂停、实时音量 |
-| Linux | ffmpeg-static | npm 自带二进制；`-f pulse` 优先，失败自动切 `-f alsa` |
+| Linux | 系统播放器 | 探测顺序 `pw-play`(PipeWire 自带) → `paplay`(Pulse 自带) → `mpv` → `mpg123` → `ffplay`，直接播 mp3 |
 | macOS | afplay | 系统自带 |
 
-Linux 播放参数：`ffmpeg -re -i <mp3> -vn -af volume=<0-1> -f pulse default`；暂停/恢复用信号实现；
-音量在每条开播时生效。服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`，让 pm2/SSH
+都没有时兜底：ffmpeg-static（npm 自带二进制）解码 → 管道 → aplay。
+音量在每条开播时生效（Windows 为实时）；暂停/恢复用信号实现。
+服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`，让 pm2/SSH
 启动的进程也能找到 PipeWire/PulseAudio。
 
 环境变量（均可选）：
 
 | 变量 | 作用 |
 | --- | --- |
-| `FFMPEG_AUDIO_OUT` | `pulse` / `alsa` 强制输出；`null` 为静音解码（诊断用） |
-| `FFMPEG_PATH` | 指定 ffmpeg 可执行文件路径 |
+| `FFMPEG_PATH` | 指定兜底路径用的 ffmpeg 可执行文件 |
 | `PLAYER_CMD` | 完整替换播放命令（播放时在末尾追加音频文件路径），如 `mpv --no-video` |
 | `PORT` | 服务端口（默认 8000） |
 | `CACHE_LIMIT_MB` | 试听/插播缓存上限（默认 300，超过即整体清空 `audio_cache/`） |
 
+配置自检：`npm run check`（会显示探测到的系统播放器；加 `--play` 真实播放验证）
+
 ### Linux 无声音排查
 
-1. 日志报「ffmpeg 不可用」→ 重新 `npm install`（确认 `node_modules/ffmpeg-static/ffmpeg` 存在）
-2. 日志报「pulse/alsa 均失败」→ `FFMPEG_AUDIO_OUT=alsa npm start` 试 ALSA 直通；
-   桌面终端运行 `pactl info` 确认音频服务在跑
+1. `npm run check` 看探测到的系统播放器；提示找不到 → `sudo apt install mpv`
+2. 桌面终端直接 `npm run check -- --play` 验证本机有声，再对比 pm2 场景
 3. pm2 环境怀疑过期：改过环境变量后**重建**进程 `pm2 delete radio-tts && pm2 start ecosystem.config.js`
    （仅 restart 不刷新 pm2 注入的环境）
 
@@ -88,7 +89,7 @@ Linux 播放参数：`ffmpeg -re -i <mp3> -vn -af volume=<0-1> -f pulse default`
 ```
 server.js               # HTTP 服务：API 路由、播放循环、定时调度、文件夹存储层
 lib/tts.js              # edge-tts 协议客户端（合成 + 音色列表 + 磁盘缓存）
-lib/player.js           # 播放引擎：Windows WMPlayer 守护进程 + ffmpeg-static（Linux/macOS）
+lib/player.js           # 播放引擎：Windows WMPlayer 守护进程 + 系统播放器探测（Linux/macOS）
 lib/wmp-daemon.ps1      # Windows 播放守护进程（stdin 命令 → WMP COM 控制）
 static/index.html       # 网页控制台（单文件前端，Tailwind CSS）
 static/tailwind.js      # Tailwind v4 浏览器版（本地文件，来自 npm 包 @tailwindcss/browser）

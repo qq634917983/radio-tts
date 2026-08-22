@@ -38,22 +38,29 @@ if (ffmpeg && fs.existsSync(ffmpeg)) {
 console.log('\n[2] 播放引擎');
 if (process.platform === 'win32') {
   ok('Windows: 使用系统 WMPlayer 组件（无需 ffmpeg 发声，ffmpeg 仅备用）');
-} else if (process.platform === 'darwin') {
-  ok('macOS: 使用系统 afplay');
-} else if (ffmpeg) {
-  try {
-    const formats = execFileSync(ffmpeg, ['-formats'], { encoding: 'utf8' });
-    const hasPulse = /^ .E pulse\b/m.test(formats) || / pulse /m.test(formats);
-    const hasAlsa = /^ .E alsa\b/m.test(formats) || / alsa /m.test(formats);
-    if (hasPulse) ok('支持 pulse 输出（首选）');
-    else { bad('不支持 pulse 输出'); failures++; }
-    if (hasAlsa) ok('支持 alsa 输出（回退）');
-    else console.log('  - 不支持 alsa 输出（仅有 pulse 也可用）');
-  } catch (e) { bad('无法查询输出格式: ' + e.message); failures++; }
-  if (process.env.XDG_RUNTIME_DIR) {
-    const sock = path.join(process.env.XDG_RUNTIME_DIR);
-    ok(`XDG_RUNTIME_DIR = ${sock}（能找到 PipeWire/PulseAudio 会话）`);
+} else {
+  // 探测系统播放器（与 lib/player.js 的 systemPlayer 同一顺序）
+  const { execFileSync } = require('child_process');
+  const isMac = process.platform === 'darwin';
+  const probe = isMac ? ['afplay'] : ['pw-play', 'paplay', 'mpv', 'mpg123', 'ffplay'];
+  const exists = (name) => {
+    for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+      try { if (fs.existsSync(path.join(dir, name))) return true; } catch (_) {}
+    }
+    return false;
+  };
+  const found = probe.find(exists);
+  if (found) {
+    ok(`系统播放器: ${found}` + (isMac ? '（macOS 自带）' : ''));
+    if (found === 'pw-play') console.log('    （PipeWire 自带，直接播 mp3）');
+    if (found === 'paplay') console.log('    （Pulse 自带，直接播 mp3）');
   } else {
+    bad('未找到系统播放器（pw-play/paplay/mpv 均无）→ 将走 ffmpeg→aplay 兜底，需系统有 aplay');
+    if (!exists('aplay')) { bad('aplay 也不存在 → 无法发声，建议 sudo apt install mpv'); failures++; }
+  }
+  if (process.env.XDG_RUNTIME_DIR) {
+    ok(`XDG_RUNTIME_DIR = ${process.env.XDG_RUNTIME_DIR}（能找到 PipeWire/PulseAudio 会话）`);
+  } else if (!isMac) {
     bad('XDG_RUNTIME_DIR 未设置且 /run/user/<uid> 不存在 → 后台进程可能发不出声');
     failures++;
   }
