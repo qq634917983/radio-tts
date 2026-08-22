@@ -7,7 +7,7 @@
 ## 功能
 
 - **TTS 语音合成**：自实现 edge-tts 协议（WebSocket，含 Sec-MS-GEC 令牌 / 时钟偏移自校正），多种中文音色、语速可调，mp3 自动磁盘缓存（sha1 命名，跨进程稳定）
-- **本机播放**：Windows 用常驻 PowerShell + WMPlayer.OCX 守护进程；Linux/macOS 用 miniaudio_node（Rust 原生模块，mp3 直读，免装播放器免编译），均支持暂停与实时音量；异常时回退 mpv / ffplay / mpg123 等外部播放器
+- **本机播放**：Windows 用常驻 PowerShell + WMPlayer.OCX 守护进程；Linux/macOS 首选 mpv 外部播放器，无播放器时回退 miniaudio_node 原生模块；均支持暂停，Windows 支持实时音量
 - **多播放列表**：创建 / 重命名 / 删除列表，条目拖拽排序（手机端 ↑↓ 按钮）、启用停用、试听
 - **播放控制**：播放 / 暂停 / 停止 / 上一条 / 下一条，列表循环、单曲循环、播放一遍，音量调节
 - **紧急插播**：随时打断当前播放插播一段文字，播完自动恢复原列表
@@ -46,30 +46,29 @@ pm2 logs ai-radio-node
 
 ## Linux / macOS 播放
 
-非 Windows 平台使用 **miniaudio_node**（Rust + rodio 原生模块）直接播放 mp3：
-npm 安装时自动下载对应平台的预编译二进制，**无需安装任何系统播放器、无需编译**，
-且支持实时音量与暂停恢复。
+非 Windows 平台**首选外部播放器 mpv**（稳定可靠，自动回退 Pulse/ALSA 输出）：
 
 ```bash
-git pull && npm install && pm2 restart ai-radio-node   # 已有部署的升级三步
+sudo apt install mpv
+git pull && pm2 restart ai-radio-node   # 已有部署的升级
 ```
 
-模块不可用（如极少数无预编译的平台）时自动回退外部播放器，探测顺序：
-`mpv → ffplay → cvlc → mpg123 → play(sox) → afplay(macOS)`；也可用环境变量
-PLAYER_CMD 指定任意命令（播放时在命令末尾追加音频文件路径）：
+播放参数：`mpv --no-video --really-quiet --volume <0-100> <文件>`；暂停/恢复用信号实现；
+音量在每条开播时生效。探测顺序：`mpv → ffplay → cvlc → mpg123 → play(sox) → afplay(macOS)`，
+也可用环境变量 PLAYER_CMD 指定任意命令（播放时在命令末尾追加音频文件路径）：
 
 ```bash
 PLAYER_CMD="mpg123 -o pulse -q" npm start
 ```
 
+未安装任何播放器时回退 miniaudio_node（Rust 原生模块，mp3 直读）。
+
 ### 无声音排查
 
-- 日志出现「miniaudio_node 不可用」→ 运行 `npm install` 确认 `node_modules/miniaudio_node` 存在
-- 日志反复出现 `Dropping OutputStream` 或「4 秒未实际开始播放」：pm2/SSH 进程访问不到用户音频会话
-  - 服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`；改环境后需**重建**进程：
-    `pm2 delete ai-radio-node && pm2 start ecosystem.config.js`（仅 restart 不会刷新环境）
-  - 在桌面终端直接 `npm start` 验证本机有声，再回到 pm2 场景对比
-  - 仍不行时 ALSA 直通兜底：`PLAYER_CMD="mpg123 -o alsa -q"` 写入 ecosystem.config.js 的 env
+- 日志「未找到可用播放器」→ `sudo apt install mpv` 后重启
+- mpv 在桌面终端能放、pm2 里不行：服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`，
+  改环境后**重建**进程：`pm2 delete ai-radio-node && pm2 start ecosystem.config.js`
+- ALSA 直通兜底：`PLAYER_CMD="mpv --no-video -o alsa"` 或 `mpg123 -o alsa -q`
 
 ## 结构
 
