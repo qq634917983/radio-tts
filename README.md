@@ -8,7 +8,7 @@
 
 - **TTS 语音合成**：自实现 edge-tts 协议（WebSocket，含 Sec-MS-GEC 令牌 / 时钟偏移自校正），多种中文音色、语速可调，mp3 自动磁盘缓存（sha1 命名，跨进程稳定）
 - **本机播放**：Windows 用系统自带 WMPlayer 组件（暂停 + 实时音量）；Linux/macOS 用 ffmpeg-static（npm 自动下载二进制，**无需 apt 安装任何播放器**，pulse → alsa 自动回退）
-- **多播放列表**：创建 / 重命名 / 删除列表，条目拖拽排序（手机端 ↑↓ 按钮）、启用停用、试听
+- **多播放列表**：**每个列表就是 `playlists/` 下的一个真实文件夹**（内含自己的 mp3 与 `meta.json` 条目/定时规则），创建 / 重命名 / 删除列表即文件夹操作，条目拖拽排序（手机端 ↑↓ 按钮）、启用停用、试听
 - **播放控制**：播放 / 暂停 / 停止 / 上一条 / 下一条，列表循环、单曲循环、播放一遍，音量调节
 - **紧急插播**：随时打断当前播放插播一段文字，播完自动恢复原列表
 - **定时任务**：按星期 + 时刻触发（播放列表 / 单条 / 停止 / 播报文字），支持执行次数与间隔重复、启用开关
@@ -40,8 +40,10 @@ netsh advfirewall firewall add rule name="AI Radio Node (8100)" dir=in action=al
 ```
 
 - 端口被占用或想换端口：`set PORT=8100 && node server.js`（Linux/macOS：`PORT=8100 npm start`）
-- 播放列表与定时任务持久化在 `state.json`（已加入 .gitignore）
-- 唯一需要联网的功能是 TTS 合成（Edge-TTS 免费接口），已合成的条目缓存于 `audio_cache/`，离线可播；页面与样式完全本地化
+- **试听/插播/播报**生成的 mp3 只进 `audio_cache/` 临时缓存，超过上限（默认 **300MB**）自动清空；`CACHE_LIMIT_MB` 环境变量可调
+- 列表条目播放用的 mp3 落在各自列表文件夹内，不受缓存清理影响；条目删除后其孤儿 mp3 自动回收
+- 旧版 `state.json`（内嵌 playlists/schedules 格式）首次启动自动迁移为文件夹模型，原缓存 mp3 一并搬运
+- 唯一需要联网的功能是 TTS 合成（Edge-TTS 免费接口），已合成的条目缓存于本地，离线可播；页面与样式完全本地化
 
 ## pm2 部署（可选）
 
@@ -70,6 +72,7 @@ Linux 播放参数：`ffmpeg -re -i <mp3> -vn -af volume=<0-1> -f pulse default`
 | `FFMPEG_PATH` | 指定 ffmpeg 可执行文件路径 |
 | `PLAYER_CMD` | 完整替换播放命令（播放时在末尾追加音频文件路径），如 `mpv --no-video` |
 | `PORT` | 服务端口（默认 8000） |
+| `CACHE_LIMIT_MB` | 试听/插播缓存上限（默认 300，超过即整体清空 `audio_cache/`） |
 
 ### Linux 无声音排查
 
@@ -82,14 +85,18 @@ Linux 播放参数：`ffmpeg -re -i <mp3> -vn -af volume=<0-1> -f pulse default`
 ## 结构
 
 ```
-server.js               # HTTP 服务：API 路由、播放循环、定时调度、状态持久化
+server.js               # HTTP 服务：API 路由、播放循环、定时调度、文件夹存储层
 lib/tts.js              # edge-tts 协议客户端（合成 + 音色列表 + 磁盘缓存）
 lib/player.js           # 播放引擎：Windows WMPlayer 守护进程 + ffmpeg-static（Linux/macOS）
 lib/wmp-daemon.ps1      # Windows 播放守护进程（stdin 命令 → WMP COM 控制）
 static/index.html       # 网页控制台（单文件前端，Tailwind CSS）
 static/tailwind.js      # Tailwind v4 浏览器版（本地文件，来自 npm 包 @tailwindcss/browser）
-state.json              # 运行数据（自动生成，兼容 Python 版）
-audio_cache/            # mp3 合成缓存（自动生成）
+playlists/              # 列表根目录：每个列表一个文件夹
+  └─ <列表名>/
+       ├─ meta.json     #   条目(id/文本/音色/语速) + 该列表的定时规则
+       └─ <hash>.mp3    #   该列表条目的合成音频（内容寻址，条目删除自动回收）
+state.json              # 全局设置：音量/模式/当前列表/全局规则(stop/announce)
+audio_cache/            # 试听/插播/播报的临时 mp3（超过 300MB 自动清空）
 ecosystem.config.js     # pm2 进程配置
 启动广播站.bat           # Windows 一键启动
 ```

@@ -1,5 +1,6 @@
 node_modules/
 audio_cache/
+playlists/
 state.json
 logs/
 *.tmp
