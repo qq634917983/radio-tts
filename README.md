@@ -44,6 +44,31 @@ pm2 start ecosystem.config.js
 pm2 logs ai-radio-node
 ```
 
+## Linux 部署
+
+Linux 下本机播放依赖一个命令行播放器（Windows 用 WMPlayer 无需安装，macOS 用自带 afplay）：
+
+```bash
+sudo apt install mpg123        # 最小方案；或 ffmpeg(含 ffplay) / mpv / sox
+```
+
+自动探测顺序：`mpv → ffplay → cvlc → mpg123 → play(sox)`。也可以用环境变量指定任意命令
+（播放时在命令末尾追加音频文件路径）：
+
+```bash
+PLAYER_CMD="mpg123 -o pulse -q" npm start
+```
+
+pm2 场景把变量写进 `ecosystem.config.js` 的 `env` 后 `pm2 restart ai-radio-node --update-env`。
+
+### Linux 无声音排查
+
+- 播放器装了仍报「未找到」：确认其在 PATH 里（`which mpg123`）
+- 播放器能启动但没声音：
+  - 桌面会话下先手动验证 `mpg123 xxx.mp3` 有声，再查 pm2 进程能否访问音频服务
+  - 通过 SSH 启动 pm2 时可能缺少用户会话环境，试 `PLAYER_CMD="mpg123 -o alsa -q"` 或 `-o pulse`
+  - `pactl info` 确认 PulseAudio/PipeWire 在运行；服务器无桌面环境时 ALSA 直通最稳
+
 ## 结构
 
 ```
