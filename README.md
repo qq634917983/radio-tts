@@ -7,7 +7,7 @@
 ## 功能
 
 - **TTS 语音合成**：自实现 edge-tts 协议（WebSocket，含 Sec-MS-GEC 令牌 / 时钟偏移自校正），多种中文音色、语速可调，mp3 自动磁盘缓存（sha1 命名，跨进程稳定）
-- **本机播放**：Windows 用常驻 PowerShell + WMPlayer.OCX 守护进程；Linux/macOS 首选 mpv 外部播放器，无播放器时回退 miniaudio_node 原生模块；均支持暂停，Windows 支持实时音量
+- **本机播放**：Windows 用系统自带 WMPlayer 组件（暂停 + 实时音量）；Linux/macOS 用 ffmpeg-static（npm 自动下载二进制，**无需 apt 安装任何播放器**，pulse → alsa 自动回退）
 - **多播放列表**：创建 / 重命名 / 删除列表，条目拖拽排序（手机端 ↑↓ 按钮）、启用停用、试听
 - **播放控制**：播放 / 暂停 / 停止 / 上一条 / 下一条，列表循环、单曲循环、播放一遍，音量调节
 - **紧急插播**：随时打断当前播放插播一段文字，播完自动恢复原列表
@@ -17,11 +17,17 @@
 
 ## 使用
 
-要求 Node.js ≥ 18（建议 20+），仅一个依赖 `ws`。
+要求 Node.js ≥ 18（建议 20+）。依赖：`ws`、`ffmpeg-static`（安装时自动下载对应平台的 ffmpeg 二进制）。
 
 ```bash
-npm install     # 首次
+npm install     # 首次；ffmpeg 二进制由 npm 自动下载
 npm start       # 启动，默认端口 8000
+```
+
+国内网络 ffmpeg 二进制下载慢时，用镜像源安装：
+
+```bash
+FFMPEG_BINARIES_URL=https://registry.npmmirror.com/-/binary/ffmpeg-static npm install
 ```
 
 或双击 `启动广播站.bat`（自动探测局域网 IP 并打开 `http://<局域网IP>:8000`）。
@@ -44,38 +50,41 @@ pm2 start ecosystem.config.js
 pm2 logs ai-radio-node
 ```
 
-## Linux / macOS 播放
+## 播放引擎
 
-非 Windows 平台**首选外部播放器 mpv**（稳定可靠，自动回退 Pulse/ALSA 输出）：
+| 平台 | 引擎 | 说明 |
+| --- | --- | --- |
+| Windows | WMPlayer.OCX 守护进程 | 系统自带；暂停、实时音量 |
+| Linux | ffmpeg-static | npm 自带二进制；`-f pulse` 优先，失败自动切 `-f alsa` |
+| macOS | afplay | 系统自带 |
 
-```bash
-sudo apt install mpv
-git pull && pm2 restart ai-radio-node   # 已有部署的升级
-```
+Linux 播放参数：`ffmpeg -re -i <mp3> -vn -af volume=<0-1> -f pulse default`；暂停/恢复用信号实现；
+音量在每条开播时生效。服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`，让 pm2/SSH
+启动的进程也能找到 PipeWire/PulseAudio。
 
-播放参数：`mpv --no-video --really-quiet --volume <0-100> <文件>`；暂停/恢复用信号实现；
-音量在每条开播时生效。探测顺序：`mpv → ffplay → cvlc → mpg123 → play(sox) → afplay(macOS)`，
-也可用环境变量 PLAYER_CMD 指定任意命令（播放时在命令末尾追加音频文件路径）：
+环境变量（均可选）：
 
-```bash
-PLAYER_CMD="mpg123 -o pulse -q" npm start
-```
+| 变量 | 作用 |
+| --- | --- |
+| `FFMPEG_AUDIO_OUT` | `pulse` / `alsa` 强制输出；`null` 为静音解码（诊断用） |
+| `FFMPEG_PATH` | 指定 ffmpeg 可执行文件路径 |
+| `PLAYER_CMD` | 完整替换播放命令（播放时在末尾追加音频文件路径），如 `mpv --no-video` |
+| `PORT` | 服务端口（默认 8000） |
 
-未安装任何播放器时回退 miniaudio_node（Rust 原生模块，mp3 直读）。
+### Linux 无声音排查
 
-### 无声音排查
-
-- 日志「未找到可用播放器」→ `sudo apt install mpv` 后重启
-- mpv 在桌面终端能放、pm2 里不行：服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`，
-  改环境后**重建**进程：`pm2 delete ai-radio-node && pm2 start ecosystem.config.js`
-- ALSA 直通兜底：`PLAYER_CMD="mpv --no-video -o alsa"` 或 `mpg123 -o alsa -q`
+1. 日志报「ffmpeg 不可用」→ 重新 `npm install`（确认 `node_modules/ffmpeg-static/ffmpeg` 存在）
+2. 日志报「pulse/alsa 均失败」→ `FFMPEG_AUDIO_OUT=alsa npm start` 试 ALSA 直通；
+   桌面终端运行 `pactl info` 确认音频服务在跑
+3. pm2 环境怀疑过期：改过环境变量后**重建**进程 `pm2 delete ai-radio-node && pm2 start ecosystem.config.js`
+   （仅 restart 不刷新 pm2 注入的环境）
 
 ## 结构
 
 ```
 server.js               # HTTP 服务：API 路由、播放循环、定时调度、状态持久化
 lib/tts.js              # edge-tts 协议客户端（合成 + 音色列表 + 磁盘缓存）
-lib/player.js           # 本机扬声器播放引擎（WMPlayer 守护进程 / 外部播放器回退）
+lib/player.js           # 播放引擎：Windows WMPlayer 守护进程 + ffmpeg-static（Linux/macOS）
 lib/wmp-daemon.ps1      # Windows 播放守护进程（stdin 命令 → WMP COM 控制）
 static/index.html       # 网页控制台（单文件前端，Tailwind CSS）
 static/tailwind.js      # Tailwind v4 浏览器版（本地文件，来自 npm 包 @tailwindcss/browser）
