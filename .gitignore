@@ -1,0 +1,5 @@
+node_modules/
+audio_cache/
+state.json
+logs/
+*.tmp

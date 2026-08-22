@@ -1,0 +1,5 @@
+{
+  "name": "radio-tts-deploy",
+  "private": true,
+  "dependencies": { "ssh2": "^1.16.0" }
+}

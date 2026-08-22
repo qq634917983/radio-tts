@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#181b24">
+  <title>AI 智能广播控制台</title>
+  <script src="/tailwind.js"></script>
+  <style type="text/tailwindcss">
+    @theme {
+      --color-main: #0f1117;
+      --color-panel: #181b24;
+      --color-card: #202531;
+      --color-hov: #2a3040;
+      --color-txt: #f1f5f9;
+      --color-txt2: #94a3b8;
+      --color-txt3: #64748b;
+    }
+  </style>
+  <style>
+    body { -webkit-tap-highlight-color: transparent; }
+    select option { background: #181b24; color: #f1f5f9; }
+    /* 定时任务弹窗里的星期圆点按钮（JS 切换 .on） */
+    .pill-btn { padding: 4px 10px; border-radius: 14px; border: 1px solid rgba(255,255,255,.1);
+                background: #202531; color: #64748b; font-size: 12px; cursor: pointer; }
+    .pill-btn.on { background: #6366f1; color: #fff; border-color: #6366f1; }
+    @media (hover: none) { .no-touch-hover:hover { background: #181b24; border-color: rgba(255,255,255,.08); transform: none; } }
+  </style>
+</head>
+<body class="h-dvh flex flex-col overflow-hidden bg-main text-txt text-sm select-none antialiased"
+      style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+
+  <!-- 顶部状态栏 -->
+  <header class="h-14 shrink-0 bg-panel border-b border-white/10 flex items-center justify-between gap-2 md:gap-3 px-3 md:px-5">
+    <div class="flex items-center gap-2.5 md:gap-3 min-w-0">
+      <button class="md:hidden w-9.5 h-9.5 w-[38px] h-[38px] rounded-md bg-card border border-white/10 flex items-center justify-center text-[17px] shrink-0"
+              onclick="openDrawer()" title="列表库">☰</button>
+      <div class="w-8 h-8 rounded-md bg-linear-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-lg shrink-0">📻</div>
+      <div class="hidden md:block text-base font-semibold tracking-wide whitespace-nowrap">AI 智能广播控制台</div>
+      <div class="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/25 text-emerald-500 text-xs rounded-full px-3 py-1 whitespace-nowrap">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse shrink-0"></span>
+        <span id="broadcastStateText">系统运行中</span>
+      </div>
+    </div>
+    <div class="hidden md:block font-mono text-xs text-txt2 bg-card border border-white/10 rounded-md px-2.5 py-1 truncate max-w-[40vw]" id="lanInfo">局域网地址: ...</div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden relative">
+    <!-- 抽屉遮罩（手机端） -->
+    <div id="drawerMask" class="fixed inset-0 bg-black/50 z-40 hidden md:!hidden" onclick="closeDrawer()"></div>
+
+    <!-- 左侧栏：列表库与即时插播 -->
+    <aside id="sidebar"
+           class="fixed md:static inset-y-0 left-0 z-50 w-[min(78vw,320px)] md:w-80 shrink-0 bg-panel md:border-r border-white/10 flex flex-col -translate-x-full md:translate-x-0 transition-transform duration-300 shadow-xl md:shadow-none">
+      <div class="p-4 flex flex-col gap-3 flex-1 overflow-y-auto min-h-0">
+        <div class="flex justify-between items-center text-xs font-semibold text-txt2 uppercase tracking-wide">
+          <span id="plCount">播放列表 (0)</span>
+          <button class="px-2 py-1 rounded-md text-xs bg-card border border-white/10 hover:bg-hov" onclick="promptNewPlaylist()">＋ 新建</button>
+        </div>
+        <ul class="flex flex-col gap-1.5 list-none" id="playlistContainer"></ul>
+        <div class="text-[11px] text-txt3 break-all" id="lanDrawer"></div>
+      </div>
+      <div class="p-4 pt-0">
+        <div class="rounded-[10px] border border-red-500/20 p-3.5 flex flex-col gap-2.5 bg-linear-to-b from-red-500/5 to-[#14182199]">
+          <div class="text-xs font-semibold text-red-400 flex items-center gap-1.5"><span>⚡</span> 即时 / 紧急插播 (最高优先级)</div>
+          <textarea id="urgentText" placeholder="输入要立即插播的文字..."
+                    class="w-full h-15 bg-main border border-white/10 rounded-md text-txt p-2 text-[13px] resize-none outline-none focus:border-red-500/50"></textarea>
+          <button class="w-full justify-center px-3.5 py-1.5 rounded-md text-[13px] font-medium bg-red-500 hover:bg-red-600 text-white inline-flex items-center gap-1.5"
+                  onclick="triggerUrgentBroadcast()">📢 立即插播</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 右侧内容与调度区 -->
+    <main class="flex-1 flex flex-col min-w-0 bg-main">
+      <div class="flex items-center justify-between gap-2 flex-wrap border-b border-white/10 px-3 md:px-6 py-0 bg-panel md:flex-nowrap pb-1.5 md:pb-0">
+        <div class="tab-nav flex gap-3 md:gap-5 w-full md:w-auto">
+          <button data-tab="tab-items" onclick="showTab('tab-items')"
+                  class="tab-btn py-3 md:py-4 text-[13px] md:text-sm font-medium text-txt2 cursor-pointer whitespace-nowrap border-b-2 border-transparent">📝 列表编排</button>
+          <button data-tab="tab-schedule" onclick="showTab('tab-schedule')"
+                  class="tab-btn py-3 md:py-4 text-[13px] md:text-sm font-medium text-txt2 cursor-pointer whitespace-nowrap border-b-2 border-transparent">⏰ 定时调度</button>
+        </div>
+        <div class="tab-actions flex gap-2 w-full md:w-auto">
+          <button class="flex-1 md:flex-none px-2 py-1 rounded-md text-xs bg-card border border-white/10 hover:bg-hov" onclick="renameCurrentList()">重命名</button>
+          <button class="flex-1 md:flex-none px-2 py-1 rounded-md text-xs bg-card border border-white/10 hover:bg-hov text-red-500" onclick="deleteCurrentList()">删除列表</button>
+        </div>
+      </div>
+
+      <!-- Tab 1: 列表编排 -->
+      <div id="tab-items" class="tab-content flex-1 overflow-y-auto p-3.5 md:p-6 flex-col gap-5 hidden">
+        <div class="bg-panel border border-white/10 rounded-[10px] p-4 flex flex-col gap-3">
+          <textarea id="newItemText" placeholder="输入要合成播报的文字内容..."
+                    class="w-full h-13 bg-card border border-white/10 rounded-md text-txt px-3 py-2.5 text-[13px] resize-none outline-none focus:border-indigo-500/50"></textarea>
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-4 flex-wrap">
+              <select id="newItemVoice"
+                      class="bg-card border border-white/10 text-txt px-3 py-1.5 rounded-md text-[13px] outline-none cursor-pointer md:max-w-[220px] flex-1 md:flex-none"></select>
+              <div class="flex items-center gap-2 text-xs text-txt2">
+                <span>语速:</span>
+                <input type="range" min="0.5" max="2" step="0.1" value="1" id="newItemSpeed" class="accent-indigo-500 cursor-pointer h-1">
+                <span id="speedVal">1.0x</span>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button class="flex-1 md:flex-none justify-center px-2 py-1.5 rounded-md text-xs bg-card border border-white/10 hover:bg-hov inline-flex items-center gap-1.5" onclick="previewTTS()">🔊 试听</button>
+              <button class="flex-1 md:flex-none justify-center px-3.5 py-1.5 rounded-md text-xs bg-indigo-500 hover:bg-indigo-600 text-white inline-flex items-center gap-1.5" onclick="addItemToList()">＋ 添加</button>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-col gap-2" id="itemsList"></div>
+      </div>
+
+      <!-- Tab 2: 定时任务 -->
+      <div id="tab-schedule" class="tab-content flex-1 overflow-y-auto p-3.5 md:p-6 flex-col gap-5 hidden">
+        <div class="flex justify-end mb-1">
+          <button class="px-3 py-1.5 rounded-md text-xs bg-indigo-500 hover:bg-indigo-600 text-white inline-flex items-center gap-1.5" onclick="openScheduleModal()">＋ 添加定时任务</button>
+        </div>
+        <table class="hidden md:table w-full border-collapse bg-panel border border-white/10 rounded-[10px] overflow-hidden">
+          <thead>
+            <tr>
+              <th class="bg-card text-left px-4 py-3 text-xs font-semibold text-txt2 border-b border-white/10">任务名称</th>
+              <th class="bg-card text-left px-4 py-3 text-xs font-semibold text-txt2 border-b border-white/10">触发时间</th>
+              <th class="bg-card text-left px-4 py-3 text-xs font-semibold text-txt2 border-b border-white/10">重复周期</th>
+              <th class="bg-card text-left px-4 py-3 text-xs font-semibold text-txt2 border-b border-white/10">执行动作</th>
+              <th class="bg-card text-left px-4 py-3 text-xs font-semibold text-txt2 border-b border-white/10">状态</th>
+              <th class="bg-card text-right px-4 py-3 text-xs font-semibold text-txt2 border-b border-white/10">操作</th>
+            </tr>
+          </thead>
+          <tbody id="schedBody"></tbody>
+        </table>
+        <!-- 手机端卡片视图 -->
+        <div class="flex md:hidden flex-col gap-2.5" id="schedCards"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 底部全局播放控制栏 -->
+  <footer class="h-16 md:h-[72px] shrink-0 bg-panel border-t border-white/10 flex items-center justify-between gap-3 px-3 md:px-6">
+    <div class="flex items-center gap-3.5 flex-1 md:w-70 min-w-0">
+      <div class="hidden md:flex w-11 h-11 bg-card rounded-md items-center justify-center text-xl border border-white/10 shrink-0">🎵</div>
+      <div class="flex flex-col gap-0.5 min-w-0">
+        <div class="text-[13px] font-medium truncate" id="nowPlayingTitle">未在播放</div>
+        <div class="text-[11px] text-txt2 truncate" id="nowPlayingSource">&nbsp;</div>
+      </div>
+    </div>
+    <div class="flex flex-col items-center gap-1">
+      <div class="flex items-center gap-3 md:gap-4">
+        <button class="w-8 h-8 md:p-1.5 rounded-full text-txt2 hover:text-txt hover:bg-card flex items-center justify-center text-base cursor-pointer" title="上一条" onclick="triggerPrev()">⏮</button>
+        <button id="playToggleBtn" onclick="togglePlayState()"
+                class="w-10 h-10 bg-indigo-500 hover:bg-indigo-600 rounded-full text-lg text-white flex items-center justify-center cursor-pointer transition-transform active:scale-95">▶</button>
+        <button class="w-8 h-8 md:p-1.5 rounded-full text-txt2 hover:text-txt hover:bg-card flex items-center justify-center text-base cursor-pointer" title="停止" onclick="triggerStop()">⏹</button>
+      </div>
+      <select id="playModeSelect" onchange="changePlayMode(this.value)"
+              class="bg-transparent border-none text-txt3 text-[11px] cursor-pointer outline-none">
+        <option value="repeat_all">🔁 列表循环</option>
+        <option value="repeat_one">🔂 单曲循环</option>
+        <option value="once">⏹ 播放一遍</option>
+      </select>
+    </div>
+    <div class="flex items-center justify-end gap-3 md:w-70">
+      <span class="text-xs text-txt2">🔊</span>
+      <input type="range" min="0" max="100" value="100" class="accent-indigo-500 cursor-pointer h-1 w-16 md:w-25" oninput="updateVolume(this.value)">
+    </div>
+  </footer>
+
+  <!-- 手机端底部 TabBar -->
+  <nav class="md:hidden h-[54px] bg-panel border-t border-white/10 flex shrink-0">
+    <button id="tbItems" class="tabbar-btn flex-1 bg-none border-none cursor-pointer flex-col items-center justify-center gap-0.5 text-txt3 text-[11px] flex text-[20px]" onclick="showTab('tab-items')">
+      <span class="text-xl leading-none">📝</span>编排
+    </button>
+    <button id="tbSched" class="tabbar-btn flex-1 bg-none border-none cursor-pointer flex-col items-center justify-center gap-0.5 text-txt3 text-[11px] flex" onclick="showTab('tab-schedule')">
+      <span class="text-xl leading-none">⏰</span>定时
+    </button>
+    <button id="tbDrawer" class="tabbar-btn flex-1 bg-none border-none cursor-pointer flex-col items-center justify-center gap-0.5 text-txt3 text-[11px] flex" onclick="openDrawer()">
+      <span class="text-xl leading-none">☰</span>列表
+    </button>
+  </nav>
+
+  <!-- 定时任务弹窗 -->
+  <div id="schedModal" class="fixed inset-0 z-[100] bg-black/60 items-center justify-center hidden" onclick="if(event.target===this)closeScheduleModal()">
+    <div class="bg-panel border border-white/10 rounded-[14px] p-6 w-[440px] max-w-[92vw] max-h-[88vh] overflow-y-auto flex flex-col gap-3.5 shadow-2xl">
+      <h3 class="text-[15px] font-semibold">⏰ 添加定时任务</h3>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <label class="text-xs text-txt2 w-15 shrink-0">任务名</label>
+        <input type="text" id="mName" placeholder="如：早间广播"
+               class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 focus:border-indigo-500/50">
+      </div>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <label class="text-xs text-txt2 w-15 shrink-0">时间</label>
+        <input type="time" id="mTime" value="08:00"
+               class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 focus:border-indigo-500/50">
+      </div>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <label class="text-xs text-txt2 w-15 shrink-0">星期</label>
+        <div class="flex gap-1.5 flex-wrap">
+          <span class="pill-btn" data-day="0">一</span><span class="pill-btn" data-day="1">二</span>
+          <span class="pill-btn" data-day="2">三</span><span class="pill-btn" data-day="3">四</span>
+          <span class="pill-btn" data-day="4">五</span><span class="pill-btn" data-day="5">六</span>
+          <span class="pill-btn" data-day="6">日</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <label class="text-xs text-txt2 w-15 shrink-0">动作</label>
+        <select id="mAction" onchange="onModalActionChange()"
+                class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 cursor-pointer">
+          <option value="play_list">播放列表</option>
+          <option value="play_item">播放单个条目</option>
+          <option value="stop">停止播放</option>
+          <option value="announce">播报文字</option>
+        </select>
+      </div>
+      <div class="modal-row flex items-center gap-2.5 flex-wrap" id="mListRow">
+        <label class="text-xs text-txt2 w-15 shrink-0">列表</label>
+        <select id="mList" onchange="fillModalItems()"
+                class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 cursor-pointer"></select>
+      </div>
+      <div class="modal-row hidden flex items-center gap-2.5 flex-wrap" id="mItemRow">
+        <label class="text-xs text-txt2 w-15 shrink-0">条目</label>
+        <select id="mItem"
+                class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 cursor-pointer"></select>
+      </div>
+      <div class="modal-row flex items-center gap-2.5 flex-wrap" id="mModeRow">
+        <label class="text-xs text-txt2 w-15 shrink-0">循环</label>
+        <select id="mMode"
+                class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 cursor-pointer">
+          <option value="repeat_all">列表循环</option>
+          <option value="repeat_one">单曲循环</option>
+          <option value="once">播放一遍</option>
+        </select>
+      </div>
+      <div class="modal-row hidden flex items-center gap-2.5 flex-wrap" id="mTextRow">
+        <label class="text-xs text-txt2 w-15 shrink-0">文字</label>
+        <textarea id="mText" rows="2" placeholder="要播报的内容"
+                  class="bg-card border border-white/10 text-txt rounded-md px-2.5 py-1.5 text-[13px] outline-none flex-1 min-w-0 resize-y focus:border-indigo-500/50"></textarea>
+      </div>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <label class="text-xs text-txt2 w-15 shrink-0">重复</label>
+        <div class="flex gap-2.5 items-center flex-1">
+          <span class="text-xs text-txt2">执行</span>
+          <input type="number" id="mCount" min="1" max="99" value="1" inputmode="numeric"
+                 class="bg-card border border-white/10 text-txt rounded-md px-2 py-1 text-[13px] outline-none w-15 focus:border-indigo-500/50">
+          <span class="text-xs text-txt2">次，每次间隔</span>
+          <input type="number" id="mInterval" min="0" max="1440" value="0" inputmode="numeric"
+                 class="bg-card border border-white/10 text-txt rounded-md px-2 py-1 text-[13px] outline-none w-[70px] focus:border-indigo-500/50">
+          <span class="text-xs text-txt2">分钟</span>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2.5 mt-1">
+        <button class="px-3.5 py-1.5 rounded-md text-[13px] bg-card border border-white/10 hover:bg-hov" onclick="closeScheduleModal()">取消</button>
+        <button class="px-3.5 py-1.5 rounded-md text-[13px] bg-indigo-500 hover:bg-indigo-600 text-white" onclick="submitSchedule()">保存任务</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+let state = null;
+let voices = [];
+let dragId = null;
+const $ = id => document.getElementById(id);
+const esc = s => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+const voiceShort = n => ({'zh-CN-XiaoxiaoNeural':'晓晓','zh-CN-YunxiNeural':'云希','zh-CN-YunjianNeural':'云健',
+  'zh-CN-XiaoyiNeural':'晓伊','zh-CN-YunyangNeural':'云扬','zh-CN-YunxiaNeural':'云夏',
+  'zh-CN-liaoning-XiaobeiNeural':'晓北(东北)','zh-CN-shaanxi-XiaoniNeural':'晓妮(陕西)'}[n] || n.replace('zh-CN-','').replace('Neural',''));
+
+async function api(url, body) {
+  const opt = body !== undefined
+    ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}
+    : {method:'POST'};
+  const r = await fetch(url, opt);
+  const j = await r.json().catch(() => ({}));
+  refresh();
+  return j;
+}
+
+// ---- 开关组件（peer 复用模板） ----
+function switchHtml(checked, onchangeAttr) {
+  return `<label class="relative inline-block w-8 h-[18px] shrink-0 cursor-pointer">
+    <input type="checkbox" ${checked ? 'checked' : ''} ${onchangeAttr} class="peer sr-only">
+    <span class="absolute inset-0 rounded-full bg-card border border-white/10 transition-colors peer-checked:bg-emerald-500 peer-checked:border-emerald-500"></span>
+    <span class="absolute left-[2px] bottom-[2px] w-3 h-3 rounded-full bg-txt3 transition-transform peer-checked:translate-x-3.5 peer-checked:bg-white"></span>
+  </label>`;
+}
+
+// ---- 渲染 ----
+function activeList() { return state.playlists.find(p => p.id === state.active_id) || state.playlists[0]; }
+
+function render() {
+  $('lanInfo').textContent = '局域网地址: ' + state.lan.replace('http://','');
+  $('lanDrawer').textContent = '局域网访问: ' + state.lan;
+  $('plCount').textContent = `播放列表 (${state.playlists.length})`;
+  document.querySelector('[data-tab="tab-items"]').textContent = `📝 列表编排 (${activeList().name})`;
+
+  // 侧栏列表
+  const c = $('playlistContainer');
+  c.innerHTML = '';
+  for (const p of state.playlists) {
+    const li = document.createElement('li');
+    li.className = 'flex items-center justify-between px-3 py-2.5 rounded-md cursor-pointer transition-colors border ' +
+      (p.id === state.active_id
+        ? 'bg-card border-indigo-500/40 text-white'
+        : 'bg-transparent border-transparent hover:bg-card');
+    li.onclick = () => { api(`/api/playlists/${p.id}/activate`); closeDrawer(); showTab('tab-items'); };
+    li.innerHTML = `<div class="flex items-center gap-2.5 overflow-hidden"><span>📋</span>
+        <span class="text-[13px] font-medium truncate">${esc(p.name)}</span></div>
+      <span class="text-[11px] px-1.5 bg-white/8 rounded-[10px] text-txt3 shrink-0">${p.items.length} 条</span>`;
+    c.appendChild(li);
+  }
+
+  // 条目
+  const box = $('itemsList');
+  const pl = activeList();
+  box.innerHTML = pl.items.length ? '' : '<div class="text-txt3 text-[13px] py-5 text-center">当前列表为空，请在上方添加条目</div>';
+  pl.items.forEach((it, i) => {
+    const isPlaying = state.playing && state.current && state.current.id === it.id;
+    const d = document.createElement('div');
+    d.draggable = true;
+    d.ondragstart = () => dragId = it.id;
+    d.ondragover = e => e.preventDefault();
+    d.ondrop = () => reorder(dragId, it.id);
+    d.className = 'no-touch-hover flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3.5 rounded-md border px-3 py-3 transition-all cursor-grab md:cursor-grab ' +
+      (isPlaying
+        ? 'border-emerald-500/40 bg-emerald-500/5'
+        : 'bg-panel border-white/10 hover:bg-card hover:border-white/15');
+    d.innerHTML = `
+      <div class="flex md:hidden flex-col gap-0.5 shrink-0">
+        <button class="w-7.5 h-6 bg-card border border-white/10 rounded text-xs text-txt2 flex items-center justify-center ${i === 0 ? 'opacity-30' : ''}" title="上移" onclick="moveItem('${it.id}',-1)">▲</button>
+        <button class="w-7.5 h-6 bg-card border border-white/10 rounded text-xs text-txt2 flex items-center justify-center ${i === pl.items.length-1 ? 'opacity-30' : ''}" title="下移" onclick="moveItem('${it.id}',1)">▼</button>
+      </div>
+      <span class="hidden md:inline text-txt3 cursor-grab text-sm">⋮⋮</span>
+      <span class="hidden md:inline text-xs text-txt3 w-5 text-center font-mono">${String(i+1).padStart(2,'0')}</span>
+      <div class="order-last md:order-none basis-full md:basis-auto flex-1 text-[13.5px] leading-relaxed min-w-0 ${it.enabled ? '' : 'text-txt3 line-through'}">${esc(it.text)}</div>
+      <div class="flex items-center gap-2 shrink-0 md:ml-auto">
+        <span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-txt2 whitespace-nowrap">${voiceShort(it.voice)}</span>
+        <span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-txt2 whitespace-nowrap">${(1 + it.rate/100).toFixed(1)}x</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 ml-auto md:ml-0">
+        <button class="p-1.5 md:p-1 rounded-full text-txt2 hover:text-txt hover:bg-card text-base cursor-pointer" title="试听" onclick="previewItem('${it.id}')">▶</button>
+        ${switchHtml(it.enabled, `onchange="toggleItem('${it.id}')"`)}
+        <button class="p-1.5 md:p-1 rounded-full text-red-500 hover:bg-card text-base cursor-pointer" title="删除" onclick="deleteItem('${it.id}')">✕</button>
+      </div>`;
+    box.appendChild(d);
+  });
+
+  // 底部播放条
+  const np = state.now_playing;
+  $('nowPlayingTitle').textContent = state.current ? state.current.text :
+    (np ? np.text : (state.playing ? '播放中…' : '未在播放'));
+  $('nowPlayingSource').textContent = state.paused ? '已暂停' :
+    (np ? `来自: ${np.list_name} · 条目 ${np.idx}/${np.total}` : '');
+  $('playToggleBtn').textContent = state.playing ? (state.paused ? '▶' : '⏸') : '▶';
+  $('playModeSelect').value = state.play_mode;
+
+  renderSchedules();
+}
+
+function schedTargetHtml(s) {
+  if (s.action === 'play_list') {
+    const pl = state.playlists.find(p => p.id === s.target);
+    return pl ? `<span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-txt2 whitespace-nowrap">${esc(pl.name)}</span>` : '<span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-red-500 whitespace-nowrap">已删除</span>';
+  }
+  if (s.action === 'play_item') {
+    const it = findItem(s.target);
+    return it ? `<span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-txt2 whitespace-nowrap">${esc(it.text.slice(0,14))}</span>` : '<span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-red-500 whitespace-nowrap">已删除</span>';
+  }
+  if (s.action === 'announce') return `<span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-txt2 whitespace-nowrap">${esc(s.text.slice(0,14))}</span>`;
+  return '';
+}
+
+function dayPills(s) {
+  const dayNames = ['一','二','三','四','五','六','日'];
+  return `<div class="flex gap-1">${dayNames.map((d,i) =>
+    `<span class="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] ${s.days.includes(i) ? 'bg-indigo-500 text-white font-semibold' : 'bg-white/5 text-txt3'}">${d}</span>`).join('')}</div>`;
+}
+
+function renderSchedules() {
+  const acts = {play_list:'播放列表', play_item:'播放单条', stop:'停止播放', announce:'播报文字'};
+
+  const tb = $('schedBody');
+  tb.innerHTML = state.schedules.length ? '' : '<tr><td colspan="6" class="text-txt3 text-[13px] py-5 text-center">暂无定时任务</td></tr>';
+  const cards = $('schedCards');
+  cards.innerHTML = state.schedules.length ? '' : '<div class="text-txt3 text-[13px] py-5 text-center">暂无定时任务</div>';
+
+  for (const s of state.schedules) {
+    const repeatTag = (s.repeat_count > 1)
+      ? ` <span class="text-[11px] px-2 py-0.5 rounded bg-white/6 text-txt2 whitespace-nowrap">×${s.repeat_count}${s.interval_min ? ` 每${+s.interval_min}分钟` : ''}</span>` : '';
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-white/2';
+    tr.innerHTML = `
+      <td class="px-4 py-3.5 border-b border-white/10 text-[13px] font-semibold">${esc(s.name)}</td>
+      <td class="px-4 py-3.5 border-b border-white/10 font-mono text-sm text-indigo-500">${s.time}</td>
+      <td class="px-4 py-3.5 border-b border-white/10">${dayPills(s)}</td>
+      <td class="px-4 py-3.5 border-b border-white/10 text-[13px]">${acts[s.action]} · ${schedTargetHtml(s)}${repeatTag}</td>
+      <td class="px-4 py-3.5 border-b border-white/10">${switchHtml(s.enabled !== false, `onchange="toggleSchedule('${s.id}')"`)}</td>
+      <td class="px-4 py-3.5 border-b border-white/10 text-right">
+        <button class="px-2 py-1 rounded-md text-xs bg-card border border-white/10 text-red-500 hover:bg-hov" onclick="deleteSchedule('${s.id}')">删除</button></td>`;
+    tb.appendChild(tr);
+
+    const card = document.createElement('div');
+    card.className = 'bg-panel border border-white/10 rounded-[10px] p-3.5 flex flex-col gap-2.5';
+    card.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-sm font-semibold truncate">${esc(s.name)}</span>
+        <span class="font-mono text-base text-indigo-500 shrink-0">${s.time}</span>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap text-xs text-txt2">${dayPills(s)}
+        <span>${acts[s.action]} · ${schedTargetHtml(s)}${repeatTag}</span></div>
+      <div class="flex items-center justify-between border-t border-white/10 pt-2.5">
+        ${switchHtml(s.enabled !== false, `onchange="toggleSchedule('${s.id}')"`)}
+        <button class="px-2 py-1 rounded-md text-xs bg-card border border-white/10 text-red-500" onclick="deleteSchedule('${s.id}')">删除</button>
+      </div>`;
+    cards.appendChild(card);
+  }
+}
+
+async function refresh() {
+  state = await (await fetch('/api/state')).json();
+  render();
+}
+
+// ---- Tab / 抽屉 ----
+function showTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const active = b.dataset.tab === tabId;
+    b.classList.toggle('text-indigo-500', active);
+    b.classList.toggle('font-semibold', active);
+    b.classList.toggle('border-indigo-500', active);
+    b.classList.toggle('border-transparent', !active);
+    b.classList.toggle('text-txt2', !active);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.toggle('hidden', c.id !== tabId);
+    c.classList.toggle('flex', c.id === tabId);
+  });
+  $('tbItems').classList.toggle('text-indigo-500', tabId === 'tab-items');
+  $('tbSched').classList.toggle('text-indigo-500', tabId === 'tab-schedule');
+}
+function openDrawer() { $('sidebar').classList.remove('-translate-x-full'); $('drawerMask').classList.remove('hidden'); }
+function closeDrawer() { $('sidebar').classList.add('-translate-x-full'); $('drawerMask').classList.add('hidden'); }
+
+// ---- 添加条目 ----
+$('newItemSpeed').addEventListener('input', e => $('speedVal').innerText = parseFloat(e.target.value).toFixed(1) + 'x');
+function speedToRate(v) { return Math.round((parseFloat(v) - 1) * 100); }
+function curNewItem() {
+  return { text: $('newItemText').value.trim(),
+           voice: $('newItemVoice').value || 'zh-CN-XiaoxiaoNeural',
+           rate: speedToRate($('newItemSpeed').value), volume: 0, enabled: true };
+}
+async function previewTTS() {
+  if (!$('newItemText').value.trim()) return alert('请先输入播报文字！');
+  await api('/api/preview', curNewItem());
+}
+async function addItemToList() {
+  const it = curNewItem();
+  if (!it.text) return alert('请输入文字');
+  await api(`/api/playlists/${state.active_id}/items`, it);
+  $('newItemText').value = '';
+}
+async function previewItem(id) {
+  const it = activeList().items.find(x => x.id === id);
+  if (it) await api('/api/preview', it);
+}
+async function toggleItem(id) {
+  const it = activeList().items.find(x => x.id === id);
+  if (it) await api(`/api/playlists/${state.active_id}/items/${id}`, {...it, enabled: !it.enabled});
+}
+async function deleteItem(id) {
+  await fetch(`/api/playlists/${state.active_id}/items/${id}`, {method:'DELETE'});
+  refresh();
+}
+async function reorder(from, to) {
+  if (!from || from === to) return;
+  const ids = activeList().items.map(x => x.id);
+  ids.splice(ids.indexOf(to), 0, ids.splice(ids.indexOf(from), 1)[0]);
+  await api(`/api/playlists/${state.active_id}/order`, ids);
+}
+async function moveItem(id, delta) {
+  const ids = activeList().items.map(x => x.id);
+  const i = ids.indexOf(id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  await api(`/api/playlists/${state.active_id}/order`, ids);
+}
+
+// ---- 播放列表管理 ----
+async function promptNewPlaylist() {
+  const name = prompt('请输入新建列表名称：');
+  if (name && name.trim()) await api('/api/playlists', {name: name.trim()});
+}
+async function renameCurrentList() {
+  const name = prompt('新的列表名称：', activeList().name);
+  if (name && name.trim()) await api(`/api/playlists/${state.active_id}`, {name: name.trim()});
+}
+async function deleteCurrentList() {
+  const pl = activeList();
+  if (state.playlists.length <= 1) return alert('至少保留一个列表');
+  if (!confirm(`确定删除列表「${pl.name}」及其所有条目？`)) return;
+  await fetch(`/api/playlists/${pl.id}`, {method:'DELETE'});
+  refresh();
+}
+
+// ---- 播放控制 ----
+function togglePlayState() {
+  if (state.playing) { api('/api/pause'); }
+  else api(`/api/play/${state.active_id}`);
+}
+function triggerStop() { api('/api/stop'); }
+function triggerPrev() { if (state.playing) api('/api/prev'); }
+function changePlayMode(mode) { api('/api/mode/' + mode); }
+let volTimer = null;
+function updateVolume(v) {
+  clearTimeout(volTimer);
+  volTimer = setTimeout(() => fetch('/api/volume/' + v/100, {method:'POST'}), 200);
+}
+
+// ---- 紧急插播 ----
+async function triggerUrgentBroadcast() {
+  const text = $('urgentText').value.trim();
+  if (!text) return alert('请输入插播文本！');
+  await api('/api/urgent', {text, resume: true});
+  $('urgentText').value = '';
+  alert('插播已下发：当前播放被打断，播完后自动恢复原列表');
+}
+
+// ---- 定时任务 ----
+function findItem(id) {
+  for (const p of state.playlists) for (const it of p.items) if (it.id === id) return it;
+  return null;
+}
+function openScheduleModal() {
+  $('mList').innerHTML = state.playlists.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  fillModalItems();
+  document.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('on'));
+  onModalActionChange();
+  $('schedModal').classList.remove('hidden');
+  $('schedModal').classList.add('flex');
+}
+function closeScheduleModal() { $('schedModal').classList.add('hidden'); $('schedModal').classList.remove('flex'); }
+document.querySelectorAll('.pill-btn').forEach(b =>
+  b.onclick = () => b.classList.toggle('on'));
+function fillModalItems() {
+  const pl = state.playlists.find(p => p.id === $('mList').value);
+  $('mItem').innerHTML = pl ? pl.items.map(it =>
+    `<option value="${it.id}">${esc(it.text.slice(0, 30))}</option>`).join('') : '';
+}
+function onModalActionChange() {
+  const a = $('mAction').value;
+  $('mListRow').classList.toggle('hidden', !(a === 'play_list' || a === 'play_item'));
+  $('mItemRow').classList.toggle('hidden', a !== 'play_item');
+  $('mModeRow').classList.toggle('hidden', a !== 'play_list');
+  $('mTextRow').classList.toggle('hidden', a !== 'announce');
+}
+async function submitSchedule() {
+  const days = [...document.querySelectorAll('.pill-btn.on')].map(b => +b.dataset.day);
+  if (!days.length) return alert('请选择重复的星期');
+  const a = $('mAction').value;
+  const s = { name: $('mName').value.trim() || '定时任务', time: $('mTime').value,
+              days, action: a, play_mode: $('mMode').value, enabled: true,
+              repeat_count: Math.max(1, +$('mCount').value || 1),
+              interval_min: Math.max(0, +$('mInterval').value || 0) };
+  if (a === 'play_list') s.target = $('mList').value;
+  else if (a === 'play_item') {
+    if (!$('mItem').value) return alert('所选列表没有条目');
+    s.target = $('mItem').value;
+  } else if (a === 'announce') {
+    s.text = $('mText').value.trim();
+    if (!s.text) return alert('请输入播报文字');
+  }
+  await api('/api/schedule', s);
+  closeScheduleModal();
+}
+async function toggleSchedule(id) { await api(`/api/schedule/${id}/toggle`); }
+async function deleteSchedule(id) {
+  await fetch('/api/schedule/' + id, {method:'DELETE'});
+  refresh();
+}
+
+// ---- 初始化 ----
+(async () => {
+  showTab('tab-items');
+  try {
+    voices = await (await fetch('/api/voices')).json();
+  } catch (e) { voices = []; }
+  const sel = $('newItemVoice');
+  for (const v of voices) {
+    const o = document.createElement('option');
+    o.value = v.name;
+    o.textContent = `${voiceShort(v.name)} (${v.gender === 'Female' ? '女' : '男'})`;
+    if (v.name === 'zh-CN-XiaoxiaoNeural') o.selected = true;
+    sel.appendChild(o);
+  }
+  refresh();
+  setInterval(refresh, 2000);
+})();
+  </script>
+</body>
+</html>
