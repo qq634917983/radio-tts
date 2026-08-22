@@ -22,6 +22,7 @@
 ```bash
 npm install     # 首次；ffmpeg 二进制由 npm 自动下载
 npm start       # 启动，默认端口 8000
+npm run check   # 配置自检：ffmpeg 二进制/音频输出/依赖；加 --play 真实播放验证
 ```
 
 国内网络 ffmpeg 二进制下载慢时，用镜像源安装：
@@ -33,10 +34,10 @@ FFMPEG_BINARIES_URL=https://registry.npmmirror.com/-/binary/ffmpeg-static npm in
 或双击 `启动广播站.bat`（自动探测局域网 IP 并打开 `http://<局域网IP>:8000`）。
 
 服务监听 `0.0.0.0`（同时覆盖局域网与本机），控制台页面上也显示当前局域网地址，手机等设备直接访问即可。
-已配置 Windows 防火墙入站规则「AI Radio Node (8000)」（TCP 8000 允许）；若换端口部署，需以管理员执行：
+已配置 Windows 防火墙入站规则「radio-tts (8000)」（TCP 8000 允许）；若换端口部署，需以管理员执行：
 
 ```bat
-netsh advfirewall firewall add rule name="AI Radio Node (8100)" dir=in action=allow protocol=TCP localport=8100
+netsh advfirewall firewall add rule name="radio-tts-8100" dir=in action=allow protocol=TCP localport=8100
 ```
 
 - 端口被占用或想换端口：`set PORT=8100 && node server.js`（Linux/macOS：`PORT=8100 npm start`）
@@ -49,7 +50,7 @@ netsh advfirewall firewall add rule name="AI Radio Node (8100)" dir=in action=al
 
 ```bash
 pm2 start ecosystem.config.js
-pm2 logs ai-radio-node
+pm2 logs radio-tts
 ```
 
 ## 播放引擎
@@ -79,7 +80,7 @@ Linux 播放参数：`ffmpeg -re -i <mp3> -vn -af volume=<0-1> -f pulse default`
 1. 日志报「ffmpeg 不可用」→ 重新 `npm install`（确认 `node_modules/ffmpeg-static/ffmpeg` 存在）
 2. 日志报「pulse/alsa 均失败」→ `FFMPEG_AUDIO_OUT=alsa npm start` 试 ALSA 直通；
    桌面终端运行 `pactl info` 确认音频服务在跑
-3. pm2 环境怀疑过期：改过环境变量后**重建**进程 `pm2 delete ai-radio-node && pm2 start ecosystem.config.js`
+3. pm2 环境怀疑过期：改过环境变量后**重建**进程 `pm2 delete radio-tts && pm2 start ecosystem.config.js`
    （仅 restart 不刷新 pm2 注入的环境）
 
 ## 结构

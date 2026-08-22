@@ -4,7 +4,8 @@
   "description": "AI 智能广播站（Node.js 版）：edge-tts 合成，本机扬声器播放，Web 控制台管理",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node check.js"
   },
   "dependencies": {
     "@tailwindcss/browser": "^4.3.3",

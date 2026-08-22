@@ -1,8 +1,8 @@
-// pm2 进程配置：AI 广播站（Node.js 版）
+// pm2 进程配置：radio-tts 广播站
 // 启动: pm2 start ecosystem.config.js
 module.exports = {
   apps: [{
-    name: 'ai-radio-node',
+    name: 'radio-tts',
     script: 'server.js',
     cwd: __dirname,
     autorestart: true,            // 崩溃自动重启
@@ -11,8 +11,8 @@ module.exports = {
     env: {
       PORT: 8000,
     },
-    out_file: './logs/ai-radio-out.log',
-    error_file: './logs/ai-radio-error.log',
+    out_file: './logs/radio-tts-out.log',
+    error_file: './logs/radio-tts-error.log',
     merge_logs: true,
     time: true,                   // 日志带时间戳
   }],
