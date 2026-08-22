@@ -65,10 +65,11 @@ PLAYER_CMD="mpg123 -o pulse -q" npm start
 ### 无声音排查
 
 - 日志出现「miniaudio_node 不可用」→ 运行 `npm install` 确认 `node_modules/miniaudio_node` 存在
-- 模块正常但无声（常见于 SSH 启动 pm2 的无会话环境）：
-  - 桌面终端先验证 `pactl info` 显示 PulseAudio/PipeWire 在运行
-  - ALSA 直通兜底：`PLAYER_CMD="mpg123 -o alsa -q"` 写入 ecosystem.config.js 的 env 后
-    `pm2 restart ai-radio-node --update-env`
+- 日志反复出现 `Dropping OutputStream` 或「4 秒未实际开始播放」：pm2/SSH 进程访问不到用户音频会话
+  - 服务启动时会自动补 `XDG_RUNTIME_DIR=/run/user/<uid>`；改环境后需**重建**进程：
+    `pm2 delete ai-radio-node && pm2 start ecosystem.config.js`（仅 restart 不会刷新环境）
+  - 在桌面终端直接 `npm start` 验证本机有声，再回到 pm2 场景对比
+  - 仍不行时 ALSA 直通兜底：`PLAYER_CMD="mpg123 -o alsa -q"` 写入 ecosystem.config.js 的 env
 
 ## 结构
 

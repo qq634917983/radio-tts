@@ -1,6 +1,15 @@
 // AI 广播站服务（Node.js 版）：edge-tts(微软语音) 合成，本机扬声器播放，Web 控制台管理。
 // 支持多播放列表、定时播放列表/单曲。API 与数据格式兼容 Python(FastAPI) 版。
 'use strict';
+// Linux 下 SSH/pm2 启动缺少用户会话环境变量时，音频后端(rodio/cpal)找不到
+// PipeWire/PulseAudio 套接字，播放流会被立刻丢弃。必须在加载播放引擎前补上。
+if (process.platform === 'linux' && !process.env.XDG_RUNTIME_DIR) {
+  try {
+    const fs = require('fs');
+    const dir = `/run/user/${process.getuid()}`;
+    if (fs.existsSync(dir)) process.env.XDG_RUNTIME_DIR = dir;
+  } catch (_) {}
+}
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
